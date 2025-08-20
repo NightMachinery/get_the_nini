@@ -3,13 +3,13 @@
 get-the-nini - Ninisite Post Scraper
 Accepts topic IDs and automatically constructs URLs
 """
-
 import requests
 from bs4 import BeautifulSoup
 import re
 import sys
 import time
 import argparse
+import json
 from urllib.parse import urljoin, urlparse, parse_qs
 from typing import List, Dict, Optional
 import html
@@ -28,6 +28,12 @@ import pypandoc
 def log_message(message: str):
     """Log message to stderr to avoid interfering with stdout output"""
     print(message, file=sys.stderr)
+
+
+def construct_default_filename(topic_id: str, fmt: str) -> str:
+    """Construct a default filename based on topic ID and format."""
+    ext = {"org": ".org", "md": ".md", "json": ".json"}.get(fmt, f".{fmt}")
+    return f"ninisite_{topic_id}{ext}"
 
 
 class OrgWriter:
@@ -60,7 +66,7 @@ class OrgWriter:
         if not self.file_handle:
             import os
 
-            self.output_file = f"ninisite_topic_{topic_id}.org"
+            self.output_file = construct_default_filename(topic_id, "org")
             if os.path.exists(self.output_file):
                 log_message(
                     f"Warning: File '{self.output_file}' exists and will be truncated"
@@ -121,15 +127,12 @@ class NinisiteScraper:
         soup = self.fetch_page(base_url)
         if not soup:
             return 1
-
         pagination = soup.find("ul", class_="pagination")
         if not pagination:
             return 1
-
         # Look for page numbers in pagination
         page_links = pagination.find_all("a")
         max_page = 1
-
         for link in page_links:
             href = link.get("href", "")
             # Extract page number from URL
@@ -139,41 +142,32 @@ class NinisiteScraper:
                     max_page = max(max_page, page_num)
                 except (ValueError, IndexError):
                     continue
-
             # Also check link text for page numbers
             text = link.get_text().strip()
             if text.isdigit():
                 max_page = max(max_page, int(text))
-
         return max_page
 
     def get_all_pages(self, base_url: str) -> List[BeautifulSoup]:
         """Get all pages of a discussion thread"""
         # Detect total pages for progress tracking
         total_pages = self.detect_total_pages(base_url)
-
         # Set up progress bar if tqdm is available and stdout is a tty
         use_progress = HAS_TQDM and sys.stdout.isatty()
         if use_progress:
             pbar = tqdm(total=total_pages, desc="Fetching pages", unit="page")
-
         pages = []
         current_url = base_url
         page_num = 1
-
         while current_url:
             if not use_progress:
                 log_message(f"Fetching page {page_num}/{total_pages}: {current_url}")
-
             soup = self.fetch_page(current_url)
             if not soup:
                 break
-
             pages.append(soup)
-
             if use_progress:
                 pbar.update(1)
-
             # Find next page URL
             pagination = soup.find("ul", class_="pagination")
             if pagination:
@@ -190,19 +184,15 @@ class NinisiteScraper:
                     current_url = None
             else:
                 current_url = None
-
             # Be respectful to the server
             self.maybe_sleep()
-
         if use_progress:
             pbar.close()
-
         return pages
 
     def extract_topic_metadata(self, soup: BeautifulSoup) -> Dict:
         """Extract metadata from the main topic"""
         metadata = {}
-
         # Topic title
         title_elem = soup.find("h1", class_="topic-title")
         if title_elem:
@@ -212,7 +202,6 @@ class NinisiteScraper:
                 if title_link
                 else title_elem.get_text().strip()
             )
-
         # Main topic article
         topic_article = soup.find("article", id="topic")
         if topic_article:
@@ -220,17 +209,14 @@ class NinisiteScraper:
             author_elem = topic_article.find("span", itemprop="name")
             if author_elem:
                 metadata["author"] = author_elem.get_text().strip()
-
             # Date
             date_elem = topic_article.find("meta", itemprop="datepublished")
             if date_elem:
                 metadata["date"] = date_elem.get("content")
-
             # View count
             view_elem = topic_article.find("meta", itemprop="userInteractionCount")
             if view_elem:
                 metadata["views"] = view_elem.get("content")
-
         # Breadcrumb for category
         breadcrumb = soup.find("ol", itemtype="http://schema.org/BreadcrumbList")
         if breadcrumb:
@@ -240,13 +226,11 @@ class NinisiteScraper:
                 if name_elem:
                     categories.append(name_elem.get_text().strip())
             metadata["categories"] = categories[1:]  # Skip the first "تبادل نظر"
-
         return metadata
 
     def extract_posts(self, pages: List[BeautifulSoup]) -> List[Dict]:
         """Extract all posts from all pages"""
         all_posts = []
-
         for page_num, soup in enumerate(pages, 1):
             # Main topic (only on first page)
             if page_num == 1:
@@ -256,64 +240,52 @@ class NinisiteScraper:
                     if post:
                         post["page"] = page_num
                         all_posts.append(post)
-
             # Reply posts
             reply_articles = soup.find_all("article", id=re.compile(r"post-\d+"))
             for article in reply_articles:
                 # Skip ads and special content
                 if "forum-native-ad" in article.get("class", []):
                     continue
-
                 post = self.extract_post_data(article, is_main_topic=False)
                 if post:
                     post["page"] = page_num
                     all_posts.append(post)
-
         return all_posts
 
     def extract_post_data(self, article, is_main_topic=False) -> Optional[Dict]:
         """Extract data from a single post article"""
         post = {}
-
         # Post ID
         post_id = article.get("id")
         if post_id:
             post["id"] = post_id
-
         # Author info
         author_elem = article.find("span", itemprop="name")
         if author_elem:
             post["author"] = author_elem.get_text().strip()
-
         # Author link for profile
         author_link = article.find("a", itemprop="url")
         if author_link:
             post["author_profile"] = author_link.get("href")
-
         # Join date and post count
         reg_date_elem = article.find("div", class_="reg-date")
         if reg_date_elem:
             post["author_join_date"] = reg_date_elem.get_text().strip()
-
         post_count_elem = article.find("div", class_="post-count")
         if post_count_elem:
             post["author_post_count"] = post_count_elem.get_text().strip()
-
         # Post date/time
         date_elem = article.find("meta", itemprop="datepublished")
         if date_elem:
             post["date"] = date_elem.get("content")
-
         # Post content
         message_elem = article.find("div", class_="post-message")
         if message_elem:
             # Convert HTML to org-mode using pandoc
             content = self.html_to_org_mode(str(message_elem))
             post["content"] = content
-
             # Also get HTML for potential formatting
             post["content_html"] = str(message_elem)
-
         # Quote/reply reference
         quote_elem = article.find("div", class_="topic-post__quotation")
         if quote_elem:
@@ -324,21 +296,17 @@ class NinisiteScraper:
                 ref_id = reply_msg.get("data-id")
                 if ref_id:
                     post["reply_to_id"] = ref_id
-
         # Like count
         like_elem = article.find("a", class_="like-count")
         if like_elem:
             like_span = like_elem.find("span")
             if like_span:
                 post["likes"] = like_span.get_text().strip()
-
         # Signature
         signature_elem = article.find("div", class_="topic-post__signature")
         if signature_elem:
             post["signature"] = signature_elem.get_text().strip()
-
         post["is_main_topic"] = is_main_topic
-
         return post if post.get("content") or post.get("is_main_topic") else None
 
     def parse_date_to_jalali(self, date_str: str) -> str:
@@ -346,11 +314,9 @@ class NinisiteScraper:
         try:
             # Parse the date string like "7/4/2023 8:02:48 AM"
             dt = datetime.strptime(date_str, "%m/%d/%Y %I:%M:%S %p")
-
             # Assume it's already in Tehran timezone (Asia/Tehran)
             tehran_tz = pytz.timezone("Asia/Tehran")
             dt_tehran = tehran_tz.localize(dt)
-
             # Convert to Jalali (Persian) calendar
             # For simplicity, we'll use a basic conversion formula
             # This is approximate - for exact conversion you'd need a proper Jalali library
@@ -359,12 +325,10 @@ class NinisiteScraper:
             day = dt_tehran.day
             hour = dt_tehran.hour
             minute = dt_tehran.minute
-
             # Simple Gregorian to Jalali conversion (approximate)
             j_year = (
                 year - 621 if month < 3 or (month == 3 and day < 21) else year - 620
             )
-
             return f"jalali:{j_year:04d}/{month:02d}/{day:02d}/{hour:02d}:{minute:02d}"
         except:
             # Fallback to original date if parsing fails
@@ -374,19 +338,16 @@ class NinisiteScraper:
         """Clean and extract author info"""
         join_date = ""
         post_count = ""
-
         if author_join_date:
             # Extract just the date part from "عضویت: 1401/06/16"
             match = re.search(r"(\d{4}/\d{2}/\d{2})", author_join_date)
             if match:
                 join_date = match.group(1)
-
         if author_post_count:
             # Extract just the number from "تعداد پست: 674"
             match = re.search(r"(\d+)", author_post_count)
             if match:
                 post_count = match.group(1)
-
         return join_date, post_count
 
     def html_to_org_mode(self, html_content: str) -> str:
@@ -394,6 +355,9 @@ class NinisiteScraper:
         try:
             # Convert HTML to org-mode
             org_content = pypandoc.convert_text(html_content, "org", format="html")
+            # Replace pandoc's hard line breaks (\ followed by a newline) with a
+            # paragraph break (two newlines).
+            org_content = org_content.replace("\\\n", "\n\n")
             return org_content.strip()
         except Exception as e:
             log_message(
@@ -401,17 +365,25 @@ class NinisiteScraper:
             )
             return self.html_to_text_with_breaks(html_content)
 
+    def html_to_markdown(self, html_content: str) -> str:
+        """Convert HTML content to Markdown using pypandoc, with text fallback"""
+        try:
+            md_content = pypandoc.convert_text(html_content, "md", format="html")
+            return md_content.strip()
+        except Exception as e:
+            log_message(
+                f"Warning: pypandoc conversion (md) failed: {e}, falling back to text with breaks"
+            )
+            return self.html_to_text_with_breaks(html_content)
+
     def html_to_text_with_breaks(self, html_content: str) -> str:
         """Convert HTML to text while preserving line breaks"""
         soup = BeautifulSoup(html_content, "html.parser")
-
         # Replace <p> and <br> tags with newlines
         for br in soup.find_all(["br"]):
             br.replace_with("\n")
-
         for p in soup.find_all(["p"]):
             p.append("\n")
-
         # Get text and clean up multiple newlines
         text = soup.get_text()
         # Replace multiple consecutive newlines with double newlines
@@ -422,7 +394,6 @@ class NinisiteScraper:
         """Add bidi marks around author names that start with Persian characters"""
         if not author:
             return author
-
         # Check if the first character is Persian/Arabic
         # Persian/Arabic Unicode ranges: 0x0600-0x06FF, 0x0750-0x077F, 0xFB50-0xFDFF, 0xFE70-0xFEFF
         first_char = author[0]
@@ -432,7 +403,6 @@ class NinisiteScraper:
             or "\ufb50" <= first_char <= "\ufdff"  # Arabic Presentation Forms-A
             or "\ufe70" <= first_char <= "\ufeff"  # Arabic Presentation Forms-B
         )
-
         if is_persian:
             # Add Right-to-Left Isolate (RLI) and Pop Directional Isolate (PDI) marks
             return f"\u2067{author}\u2069"  # RLI + author + PDI
@@ -443,13 +413,195 @@ class NinisiteScraper:
         """Extract topic ID from URL"""
         parsed_url = urlparse(url)
         path_parts = parsed_url.path.split("/")
-
         # Look for numeric topic ID in path
         for part in path_parts:
             if part.isdigit():
                 return part
-
         return "unknown"
+
+    def format_markdown(
+        self, metadata: Dict, posts: List[Dict], base_url: str, paginate: bool = True
+    ) -> str:
+        """Format the scraped data as Markdown"""
+        lines: List[str] = []
+        title = metadata.get("title", "Ninisite Post")
+        lines.append(f"# {title}")
+        lines.append("")
+        # Metadata
+        unique_authors = len(set(post.get("author", "Unknown") for post in posts))
+        num_pages = max(post.get("page", 1) for post in posts) if posts else 1
+        topic_id = self.extract_topic_id(base_url)
+        lines.append("**Metadata**")
+        lines.append("")
+        meta_items = [
+            ("Topic ID", topic_id),
+            ("Original URL", base_url),
+            ("Total Pages", str(num_pages)),
+            ("Unique Authors", str(unique_authors)),
+            ("Total Posts", str(len(posts))),
+        ]
+        if metadata.get("author"):
+            meta_items.append(("Author", metadata["author"]))
+        if metadata.get("date"):
+            meta_items.append(("Date", metadata["date"]))
+        if metadata.get("views"):
+            meta_items.append(("Views", metadata["views"]))
+        if metadata.get("categories"):
+            meta_items.append(("Categories", " > ".join(metadata["categories"])))
+        for k, v in meta_items:
+            lines.append(f"- {k}: {v}")
+        lines.append("")
+
+        def page_heading(pn: int) -> str:
+            if 10 <= pn % 100 <= 20:
+                suffix = "th"
+            else:
+                suffix = {1: "st", 2: "nd", 3: "rd"}.get(pn % 10, "th")
+            return f"{pn}{suffix} Page"
+
+        def write_post_md(post: Dict, heading_level: int = 3):
+            likes = post.get("likes", "0")
+            author = post.get("author", "Unknown")
+            join_date, post_count = self.clean_author_info(
+                post.get("author_join_date", ""), post.get("author_post_count", "")
+            )
+            date_formatted = self.parse_date_to_jalali(post.get("date", ""))
+            likes_str = (
+                f"@likes/{likes} " if likes and likes != "0" and int(likes) > 0 else ""
+            )
+            author_info = (
+                f" ({join_date}, {post_count} posts)"
+                if join_date and post_count
+                else ""
+            )
+            hashes = "#" * heading_level
+            lines.append(
+                f"{hashes} {likes_str}{author}{author_info} [{date_formatted}]"
+            )
+            lines.append("")
+            # Properties (as a definition list-ish)
+            props: List[str] = []
+            if post.get("id"):
+                cid = (
+                    post["id"].replace("post-", "")
+                    if post["id"].startswith("post-")
+                    else post["id"]
+                )
+                props.append(f"Custom ID: {cid}")
+            if post.get("reply_to_id"):
+                rid = (
+                    post["reply_to_id"].replace("post-", "")
+                    if post["reply_to_id"].startswith("post-")
+                    else post["reply_to_id"]
+                )
+                props.append(f"In Reply To: #{rid}")
+            if post.get("likes"):
+                props.append(f"Likes: {post['likes']}")
+            if post.get("page"):
+                props.append(f"Page: {post['page']}")
+            if props:
+                for p in props:
+                    lines.append(f"- {p}")
+                lines.append("")
+            # Quoted content
+            if post.get("quoted_content"):
+                lines.append("> " + post["quoted_content"].replace("\n", "\n> "))
+                lines.append("")
+            # Main content (prefer HTML->MD if available)
+            content_md = None
+            if post.get("content_html"):
+                content_md = self.html_to_markdown(post["content_html"]) or ""
+            elif post.get("content"):
+                # content is org-like; use as-is
+                content_md = post["content"]
+            if content_md:
+                lines.append(content_md)
+                lines.append("")
+            # Signature
+            if post.get("signature"):
+                lines.append(f"{hashes}# Signature")
+                lines.append(post["signature"])
+                lines.append("")
+
+        if paginate:
+            posts_by_page: Dict[int, List[Dict]] = {}
+            for post in posts:
+                pn = post.get("page", 1)
+                posts_by_page.setdefault(pn, []).append(post)
+            for pn in sorted(posts_by_page.keys()):
+                # Build page URL
+                if pn == 1:
+                    page_url = base_url
+                else:
+                    if "?" in base_url:
+                        page_url = (
+                            re.sub(r"page=\d+", f"page={pn}", base_url)
+                            if "page=" in base_url
+                            else f"{base_url}&page={pn}"
+                        )
+                    else:
+                        page_url = f"{base_url}?page={pn}"
+                lines.append(f"## [{page_heading(pn)}]({page_url})")
+                lines.append("")
+                for post in posts_by_page[pn]:
+                    write_post_md(post, heading_level=3)
+        else:
+            for post in posts:
+                write_post_md(post, heading_level=2)
+        return "\n".join(lines).rstrip() + "\n"
+
+    def format_json(
+        self, metadata: Dict, posts: List[Dict], base_url: str, paginate: bool = True
+    ) -> str:
+        """Format the scraped data as JSON"""
+        unique_authors = len(set(post.get("author", "Unknown") for post in posts))
+        num_pages = max(post.get("page", 1) for post in posts) if posts else 1
+        topic_id = self.extract_topic_id(base_url)
+
+        def norm_id(v: Optional[str]) -> Optional[str]:
+            if not v:
+                return v
+            return v.replace("post-", "") if v.startswith("post-") else v
+
+        out = {
+            "title": metadata.get("title", "Ninisite Post"),
+            "topic_id": topic_id,
+            "original_url": base_url,
+            "total_pages": num_pages,
+            "unique_authors": unique_authors,
+            "total_posts": len(posts),
+            "author": metadata.get("author"),
+            "date": metadata.get("date"),
+            "views": metadata.get("views"),
+            "categories": metadata.get("categories", []),
+            "posts": [],
+        }
+        for post in posts:
+            item = {
+                "id": norm_id(post.get("id")),
+                "author": post.get("author"),
+                "author_profile": post.get("author_profile"),
+                "author_join_date": post.get("author_join_date"),
+                "author_post_count": post.get("author_post_count"),
+                "date": post.get("date"),
+                "likes": post.get("likes"),
+                "page": post.get("page"),
+                "reply_to_id": norm_id(post.get("reply_to_id")),
+                "quoted_content": post.get("quoted_content"),
+                "signature": post.get("signature"),
+                # Include multiple representations of content
+                "content_org": post.get("content"),
+                "content_html": post.get("content_html"),
+            }
+            # Add a plain text version
+            if post.get("content_html"):
+                item["content_text"] = self.html_to_text_with_breaks(
+                    post["content_html"]
+                )
+            elif post.get("content"):
+                item["content_text"] = post["content"]
+            out["posts"].append(item)
+        return json.dumps(out, ensure_ascii=False, indent=2)
 
     def format_org_mode_streaming(
         self,
@@ -464,7 +616,6 @@ class NinisiteScraper:
         title = metadata.get("title", "Ninisite Post")
         writer.writeln(f"#+TITLE: {title}")
         writer.writeln()
-
         # Calculate additional metadata
         unique_authors = len(set(post.get("author", "Unknown") for post in posts))
         num_pages = max(post.get("page", 1) for post in posts) if posts else 1
@@ -472,10 +623,8 @@ class NinisiteScraper:
             datetime.now().strftime("%m/%d/%Y %I:%M:%S %p")
         )
         topic_id = self.extract_topic_id(base_url)
-
         # Set auto filename if needed
         writer.set_auto_filename(topic_id)
-
         # Main header
         writer.writeln(f"* {title}")
         writer.writeln(":PROPERTIES:")
@@ -495,7 +644,6 @@ class NinisiteScraper:
         writer.writeln(f":TOTAL_POSTS: {len(posts)}")
         writer.writeln(":END:")
         writer.writeln()
-
         if paginate:
             # Group posts by page
             posts_by_page = {}
@@ -504,11 +652,9 @@ class NinisiteScraper:
                 if page_num not in posts_by_page:
                     posts_by_page[page_num] = []
                 posts_by_page[page_num].append(post)
-
             # Process each page
             for page_num in sorted(posts_by_page.keys()):
                 page_posts = posts_by_page[page_num]
-
                 # Create page URL
                 if page_num == 1:
                     page_url = base_url
@@ -524,7 +670,6 @@ class NinisiteScraper:
                     else:
                         # Add page parameter as first query parameter
                         page_url = f"{base_url}?page={page_num}"
-
                 # Page heading
                 if page_num == 1:
                     writer.writeln(f"** [[{page_url}][1st Page]]")
@@ -534,7 +679,6 @@ class NinisiteScraper:
                     writer.writeln(f"** [[{page_url}][3rd Page]]")
                 else:
                     writer.writeln(f"** [[{page_url}][{page_num}th Page]]")
-
                 # Process posts for this page
                 for post in page_posts:
                     self._format_post_streaming(post, writer, heading_level="***")
@@ -548,12 +692,10 @@ class NinisiteScraper:
     ) -> str:
         """Format the scraped data as org-mode (non-streaming version)"""
         org_content = []
-
         # File title
         title = metadata.get("title", "Ninisite Post")
         org_content.append(f"#+TITLE: {title}")
         org_content.append("")
-
         # Calculate additional metadata
         unique_authors = len(set(post.get("author", "Unknown") for post in posts))
         num_pages = max(post.get("page", 1) for post in posts) if posts else 1
@@ -561,7 +703,6 @@ class NinisiteScraper:
             datetime.now().strftime("%m/%d/%Y %I:%M:%S %p")
         )
         topic_id = self.extract_topic_id(base_url)
-
         # Main header
         org_content.append(f"* {title}")
         org_content.append(":PROPERTIES:")
@@ -581,7 +722,6 @@ class NinisiteScraper:
         org_content.append(f":SCRAPE_DATE: {scrape_time}")
         org_content.append(":END:")
         org_content.append("")
-
         if paginate:
             # Group posts by page
             posts_by_page = {}
@@ -590,11 +730,9 @@ class NinisiteScraper:
                 if page_num not in posts_by_page:
                     posts_by_page[page_num] = []
                 posts_by_page[page_num].append(post)
-
             # Process each page
             for page_num in sorted(posts_by_page.keys()):
                 page_posts = posts_by_page[page_num]
-
                 # Create page URL
                 if page_num == 1:
                     page_url = base_url
@@ -610,7 +748,6 @@ class NinisiteScraper:
                     else:
                         # Add page parameter as first query parameter
                         page_url = f"{base_url}?page={page_num}"
-
                 # Page heading
                 if page_num == 1:
                     org_content.append(f"** [[{page_url}][1st Page]]")
@@ -620,7 +757,6 @@ class NinisiteScraper:
                     org_content.append(f"** [[{page_url}][3rd Page]]")
                 else:
                     org_content.append(f"** [[{page_url}][{page_num}th Page]]")
-
                 # Process posts for this page
                 for post in page_posts:
                     self._format_post(post, org_content, heading_level="***")
@@ -628,7 +764,6 @@ class NinisiteScraper:
             # Non-paginated: process all posts directly under main heading
             for post in posts:
                 self._format_post(post, org_content, heading_level="**")
-
         return "\n".join(org_content)
 
     def _format_post_streaming(
@@ -640,24 +775,18 @@ class NinisiteScraper:
         author = post.get("author", "Unknown")
         author_formatted = self.format_author_name(author)
         date_formatted = self.parse_date_to_jalali(post.get("date", ""))
-
         join_date, post_count = self.clean_author_info(
             post.get("author_join_date", ""), post.get("author_post_count", "")
         )
-
         author_info = (
             f"({join_date}, {post_count} posts)" if join_date and post_count else ""
         )
-
         # Only include likes if > 0, and use @likes/{count} format
         likes_str = ""
         if likes and likes != "0" and int(likes) > 0:
             likes_str = f"@likes/{likes} "
-
         heading = f"{heading_level} {likes_str}{author_formatted} {author_info} [{date_formatted}]"
-
         writer.writeln(heading)
-
         # Post properties
         writer.writeln(":PROPERTIES:")
         if post.get("id"):
@@ -683,7 +812,6 @@ class NinisiteScraper:
         if post.get("reply_to_id"):
             writer.writeln(f":REPLY_TO_ID: {post['reply_to_id']}")
         writer.writeln(":END:")
-
         # Reply link (if replying to someone)
         if post.get("reply_to_id"):
             reply_id = (
@@ -693,7 +821,6 @@ class NinisiteScraper:
             )
             writer.writeln(f"- [[#{reply_id}][In Reply To]]")
             writer.writeln()
-
         # Quoted content (if replying to someone)
         if post.get("quoted_content"):
             writer.writeln("#+begin_quote")
@@ -703,7 +830,6 @@ class NinisiteScraper:
                     writer.writeln(line.strip())
             writer.writeln("#+end_quote")
             writer.writeln()
-
         # Main content
         if post.get("content"):
             content_lines = post["content"].split("\n")
@@ -711,7 +837,6 @@ class NinisiteScraper:
                 if line.strip():
                     writer.writeln(line.strip())
             writer.writeln()
-
         # Signature
         if post.get("signature"):
             signature_level = "***" if heading_level == "**" else "****"
@@ -731,24 +856,18 @@ class NinisiteScraper:
         author = post.get("author", "Unknown")
         author_formatted = self.format_author_name(author)
         date_formatted = self.parse_date_to_jalali(post.get("date", ""))
-
         join_date, post_count = self.clean_author_info(
             post.get("author_join_date", ""), post.get("author_post_count", "")
         )
-
         author_info = (
             f"({join_date}, {post_count} posts)" if join_date and post_count else ""
         )
-
         # Only include likes if > 0, and use @likes/{count} format
         likes_str = ""
         if likes and likes != "0" and int(likes) > 0:
             likes_str = f"@likes/{likes} "
-
         heading = f"{heading_level} {likes_str}{author_formatted} {author_info} [{date_formatted}]"
-
         org_content.append(heading)
-
         # Post properties
         org_content.append(":PROPERTIES:")
         if post.get("id"):
@@ -774,7 +893,6 @@ class NinisiteScraper:
         if post.get("reply_to_id"):
             org_content.append(f":REPLY_TO_ID: {post['reply_to_id']}")
         org_content.append(":END:")
-
         # Reply link (if replying to someone)
         if post.get("reply_to_id"):
             reply_id = (
@@ -784,7 +902,6 @@ class NinisiteScraper:
             )
             org_content.append(f"- [[#{reply_id}][In Reply To]]")
             org_content.append("")
-
         # Quoted content (if replying to someone)
         if post.get("quoted_content"):
             org_content.append("#+begin_quote")
@@ -794,7 +911,6 @@ class NinisiteScraper:
                     org_content.append(line.strip())
             org_content.append("#+end_quote")
             org_content.append("")
-
         # Main content
         if post.get("content"):
             content_lines = post["content"].split("\n")
@@ -802,7 +918,6 @@ class NinisiteScraper:
                 if line.strip():
                     org_content.append(line.strip())
             org_content.append("")
-
         # Signature
         if post.get("signature"):
             signature_level = "***" if heading_level == "**" else "****"
@@ -818,42 +933,33 @@ class NinisiteScraper:
     ):
         """Main method to scrape a discussion and stream org-mode formatted content"""
         log_message(f"Starting to scrape: {url}")
-
         # Detect total pages for progress tracking
         total_pages = self.detect_total_pages(url)
-
         # Set up progress bar if tqdm is available and stdout is a tty
         use_progress = HAS_TQDM and sys.stdout.isatty()
         if use_progress:
             pbar = tqdm(total=total_pages, desc="Fetching pages", unit="page")
-
         pages = []
         current_url = url
         page_num = 1
         all_posts = []
         metadata = None
-
         # Write header info as soon as we have it
         first_page_processed = False
-
         while current_url:
             if not use_progress:
                 log_message(f"Fetching page {page_num}/{total_pages}: {current_url}")
-
             soup = self.fetch_page(current_url)
             if not soup:
                 break
-
             # Extract metadata from first page and write header
             if not first_page_processed:
                 metadata = self.extract_topic_metadata(soup)
                 self.write_header_streaming(metadata, url, writer, total_pages)
                 first_page_processed = True
-
             # Extract and process posts from this page
             page_posts = self.extract_posts_from_page(soup, page_num)
             all_posts.extend(page_posts)
-
             # Write page content immediately
             if paginate and page_posts:
                 self.write_page_streaming(page_num, url, page_posts, writer)
@@ -861,10 +967,8 @@ class NinisiteScraper:
                 # Write posts directly under main heading
                 for post in page_posts:
                     self._format_post_streaming(post, writer, heading_level="**")
-
             if use_progress:
                 pbar.update(1)
-
             # Find next page URL
             pagination = soup.find("ul", class_="pagination")
             if pagination:
@@ -880,25 +984,19 @@ class NinisiteScraper:
                     current_url = None
             else:
                 current_url = None
-
             # Be respectful to the server
             self.maybe_sleep()
-
         if use_progress:
             pbar.close()
-
         if not all_posts:
             raise Exception("No posts found")
-
         log_message(f"Extracted {len(all_posts)} posts from {page_num} pages")
-
         # Write final summary at the end
         self.write_summary_streaming(all_posts, writer)
 
     def extract_posts_from_page(self, soup: BeautifulSoup, page_num: int) -> List[Dict]:
         """Extract posts from a single page"""
         posts = []
-
         # Main topic (only on first page)
         if page_num == 1:
             topic_article = soup.find("article", id="topic")
@@ -907,19 +1005,16 @@ class NinisiteScraper:
                 if post:
                     post["page"] = page_num
                     posts.append(post)
-
         # Reply posts
         reply_articles = soup.find_all("article", id=re.compile(r"post-\d+"))
         for article in reply_articles:
             # Skip ads and special content
             if "forum-native-ad" in article.get("class", []):
                 continue
-
             post = self.extract_post_data(article, is_main_topic=False)
             if post:
                 post["page"] = page_num
                 posts.append(post)
-
         return posts
 
     def write_header_streaming(
@@ -930,16 +1025,13 @@ class NinisiteScraper:
         title = metadata.get("title", "Ninisite Post")
         writer.writeln(f"#+TITLE: {title}")
         writer.writeln()
-
         # Calculate metadata (we'll update unique authors count later, but we need placeholders)
         scrape_time = self.parse_date_to_jalali(
             datetime.now().strftime("%m/%d/%Y %I:%M:%S %p")
         )
         topic_id = self.extract_topic_id(base_url)
-
         # Set auto filename if needed
         writer.set_auto_filename(topic_id)
-
         # Main header
         writer.writeln(f"* {title}")
         writer.writeln(":PROPERTIES:")
@@ -978,7 +1070,6 @@ class NinisiteScraper:
             else:
                 # Add page parameter as first query parameter
                 page_url = f"{base_url}?page={page_num}"
-
         # Page heading
         if page_num == 1:
             writer.writeln(f"** [[{page_url}][1st Page]]")
@@ -988,7 +1079,6 @@ class NinisiteScraper:
             writer.writeln(f"** [[{page_url}][3rd Page]]")
         else:
             writer.writeln(f"** [[{page_url}][{page_num}th Page]]")
-
         # Process posts for this page
         for post in posts:
             self._format_post_streaming(post, writer, heading_level="***")
@@ -996,7 +1086,6 @@ class NinisiteScraper:
     def write_summary_streaming(self, all_posts: List[Dict], writer: OrgWriter):
         """Write final summary statistics"""
         unique_authors = len(set(post.get("author", "Unknown") for post in all_posts))
-
         writer.writeln()
         writer.writeln("* Summary")
         writer.writeln(f"- Total posts: {len(all_posts)}")
@@ -1005,21 +1094,16 @@ class NinisiteScraper:
     def scrape_discussion(self, url: str, paginate: bool = True) -> str:
         """Main method to scrape a discussion and return org-mode formatted content"""
         log_message(f"Starting to scrape: {url}")
-
         # Get all pages
         pages = self.get_all_pages(url)
         if not pages:
             raise Exception("Could not fetch any pages")
-
         log_message(f"Found {len(pages)} pages")
-
         # Extract metadata from first page
         metadata = self.extract_topic_metadata(pages[0])
-
         # Extract all posts
         posts = self.extract_posts(pages)
         log_message(f"Extracted {len(posts)} posts")
-
         # Format as org-mode
         return self.format_org_mode(metadata, posts, url, paginate)
 
@@ -1036,7 +1120,10 @@ def is_valid_topic_id(topic_id: str) -> bool:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Scrape Ninisite discussion posts and format as org-mode. Accepts topic IDs or full URLs."
+        description=(
+            "Scrape Ninisite discussion posts and output in org, markdown, or JSON. "
+            "Accepts topic IDs or full URLs."
+        )
     )
     parser.add_argument(
         "topic_id_or_url",
@@ -1061,23 +1148,29 @@ def main():
         help='Output file (use "-" for stdout, default: auto-generate from topic ID)',
     )
     parser.add_argument(
+        "--format",
+        "--fmt",
+        dest="format",
+        choices=["auto", "org", "md", "markdown", "json"],
+        default="auto",
+        help=(
+            "Output format: org, md/markdown, or json. Default: auto (guesses from output "
+            "file extension; when no output path provided, defaults to org)."
+        ),
+    )
+    parser.add_argument(
         "--sleep",
         type=float,
         default=0.0,
         help="Sleep duration between requests in seconds (default: 0)",
     )
-
     args = parser.parse_args()
-
     # Handle URL/topic ID parsing
     if not args.topic_id_or_url:
         parser.error("At least one topic ID or URL is required")
-
     if len(args.topic_id_or_url) > 1:
         parser.error("Only one topic ID or URL is supported at this time")
-
     input_value = args.topic_id_or_url[0]
-
     # Determine if input is a topic ID or full URL
     if is_valid_topic_id(input_value):
         # It's a topic ID, construct the URL
@@ -1092,36 +1185,70 @@ def main():
         parser.error(
             f"Invalid input: '{input_value}' is neither a valid topic ID nor a URL"
         )
-
     scraper = NinisiteScraper(sleep_duration=args.sleep)
+
+    def resolve_format(fmt_opt: str, out_path: Optional[str]) -> str:
+        fmt = fmt_opt or "auto"
+        fmt = "md" if fmt == "markdown" else fmt
+        if fmt == "auto":
+            if out_path and out_path != "-":
+                lower = out_path.lower()
+                if lower.endswith(".org"):
+                    return "org"
+                if lower.endswith(".md") or lower.endswith(".markdown"):
+                    return "md"
+                if lower.endswith(".json"):
+                    return "json"
+            # No path provided or stdout: default to org
+            return "org"
+        return fmt
+
+    fmt = resolve_format(args.format, args.out)
     try:
         # Log output mode information
         if args.out == "-":
             log_message(
-                f"Output mode: {'streaming' if args.streaming else 'buffered'} to stdout"
+                f"Output mode: {'streaming' if args.streaming else 'buffered'} to stdout (format={fmt})"
             )
         elif args.out:
             log_message(
-                f"Output mode: {'streaming' if args.streaming else 'buffered'} to file '{args.out}'"
+                f"Output mode: {'streaming' if args.streaming else 'buffered'} to file '{args.out}' (format={fmt})"
             )
         else:
             topic_id = scraper.extract_topic_id(url)
-            output_file = f"ninisite_topic_{topic_id}.org"
+            output_file = construct_default_filename(topic_id, fmt)
             log_message(
-                f"Output mode: {'streaming' if args.streaming else 'buffered'} to auto-generated file '{output_file}'"
+                f"Output mode: {'streaming' if args.streaming else 'buffered'} to auto-generated file '{output_file}' (format={fmt})"
             )
-
-        if args.streaming:
-            # Streaming mode
+        # Non-org formats do not support streaming; fall back to buffered
+        if fmt != "org" and args.streaming:
+            log_message(
+                "Note: streaming is only supported for org format; falling back to buffered output"
+            )
+            args.streaming = False
+        if args.streaming and fmt == "org":
+            # Streaming org-mode
             with OrgWriter(args.out) as writer:
                 scraper.scrape_discussion_streaming(url, writer, args.paginate)
         else:
-            # Non-streaming mode (legacy)
-            org_content = scraper.scrape_discussion(url, args.paginate)
-
+            # Buffered modes
+            # Fetch data once
+            pages = scraper.get_all_pages(url)
+            if not pages:
+                raise Exception("Could not fetch any pages")
+            metadata = scraper.extract_topic_metadata(pages[0])
+            posts = scraper.extract_posts(pages)
+            if fmt == "org":
+                content = scraper.format_org_mode(metadata, posts, url, args.paginate)
+            elif fmt == "md":
+                content = scraper.format_markdown(metadata, posts, url, args.paginate)
+            elif fmt == "json":
+                content = scraper.format_json(metadata, posts, url, args.paginate)
+            else:
+                raise Exception(f"Unsupported format: {fmt}")
             # Handle output
             if args.out == "-":
-                print(org_content)
+                print(content)
             elif args.out:
                 import os
 
@@ -1130,21 +1257,20 @@ def main():
                         f"Warning: File '{args.out}' exists and will be truncated"
                     )
                 with open(args.out, "w", encoding="utf-8") as f:
-                    f.write(org_content)
+                    f.write(content)
                 log_message(f"Successfully saved to {args.out}")
             else:
                 import os
 
                 topic_id = scraper.extract_topic_id(url)
-                output_file = f"ninisite_topic_{topic_id}.org"
+                output_file = construct_default_filename(topic_id, fmt)
                 if os.path.exists(output_file):
                     log_message(
                         f"Warning: File '{output_file}' exists and will be truncated"
                     )
                 with open(output_file, "w", encoding="utf-8") as f:
-                    f.write(org_content)
+                    f.write(content)
                 log_message(f"Successfully saved to {output_file}")
-
     except Exception as e:
         log_message(f"Error: {e}")
         sys.exit(1)
