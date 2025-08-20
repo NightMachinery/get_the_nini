@@ -1,5 +1,15 @@
 #+TITLE: get_the_nini/todo
 
+*
+#+BEGIN_SRC markdown
+add `--format` which can `org`, `md` (or `markdown`), or `json`. default to `auto` which guesses based on provided output path extension. when no path provided, default to org.
+
+
+include examples for all output formats in `examples/` for `https://www.ninisite.com/discussion/topic/11473285/`.
+
+Write readme.org which documents the project. link to examples.
+#+END_SRC
+
 * scraping
 ** _
 #+BEGIN_SRC markdown
@@ -7717,3 +7727,19 @@ in reply to another post should include a link to it as `-
 4. there is an extra newline between headings and their property drawers. 
 remove the extra line break.
 #+END_SRC
+
+#+BEGIN_SRC markdown
+```
+                # Page heading
+                if page_num == 1:
+                    org_content.append(f"** [[{page_url}][1st Page]]")
+                elif page_num == 2:
+                    org_content.append(f"** [[{page_url}][2nd Page]]")
+                elif page_num == 3:
+                    org_content.append(f"** [[{page_url}][3rd Page]]")
+                else:
+                    org_content.append(f"** [[{page_url}][{page_num}th Page]]")
+```
+we should check the last char, as pages might be big, like `101` etc.
+#+END_SRC
+

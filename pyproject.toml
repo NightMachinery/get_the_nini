@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "get-the-nini"
+version = "0.1.0"
+description = "Ninisite Post Scraper - Fetches all pages of a Ninisite discussion and formats in org-mode"
+authors = ["Your Name <your.email@example.com>"]
+readme = "README.org"
+packages = [{include = "get_the_nini"}]
+
+[tool.poetry.scripts]
+get-the-nini = "get_the_nini.main:main"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+requests = "^2.25.0"
+beautifulsoup4 = "^4.9.0"
+tqdm = "^4.60.0"
+pypandoc = "^1.6.0"
+pytz = "^2021.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

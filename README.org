@@ -1,0 +1,216 @@
+#+TITLE: get-the-nini
+#+AUTHOR: get-the-nini Project
+#+DATE: 2025
+
+* Overview
+
+=get-the-nini= is a Python tool for scraping Ninisite discussion posts and formatting them as org-mode files. It can accept either topic IDs or full URLs, automatically constructing the appropriate Ninisite URLs when given topic IDs.
+
+* Features
+
+- **Topic ID Support**: Simply provide a numeric topic ID (e.g., =11473285=) and the tool automatically constructs the full URL
+- **Full URL Support**: Also accepts complete Ninisite discussion URLs
+- **Org-mode Output**: Formats scraped content as structured org-mode files
+- **Streaming Output**: Real-time processing and output as pages are scraped
+- **Persian/Arabic Text Support**: Proper handling of RTL text with bidirectional formatting
+- **Progress Tracking**: Visual progress bars when available
+- **Flexible Output**: Output to files, stdout, or auto-generated filenames
+- **Pagination**: Organizes posts by page with proper linking
+- **Metadata Extraction**: Captures author info, dates, likes, categories, and more
+
+* Installation
+
+** Using Poetry (Recommended)
+
+#+begin_src bash
+# Clone or download the project
+cd get_the_nini
+
+# Install with Poetry
+poetry install
+
+# The binary will be available as 'get-the-nini'
+poetry run get-the-nini --help
+#+end_src
+
+** Direct Python Execution
+
+#+begin_src bash
+# Install dependencies manually
+pip install requests beautifulsoup4 tqdm pypandoc pytz
+
+# Run directly
+python get_the_nini/main.py --help
+#+end_src
+
+* Usage
+
+** Basic Usage with Topic ID
+
+#+begin_src bash
+# Scrape topic 11473285 - just provide the numeric ID
+get-the-nini 11473285
+
+# Output will be saved to: ninisite_topic_11473285.org
+#+end_src
+
+** Basic Usage with Full URL
+
+#+begin_src bash
+# You can also provide the complete URL
+get-the-nini "https://www.ninisite.com/discussion/topic/11473285/"
+#+end_src
+
+** Advanced Options
+
+#+begin_src bash
+# Output to stdout
+get-the-nini 11473285 -o -
+
+# Output to specific file
+get-the-nini 11473285 -o my_discussion.org
+
+# Disable pagination (flatten structure)
+get-the-nini 11473285 --no-paginate
+
+# Add delay between requests (be respectful)
+get-the-nini 11473285 --sleep 1.0
+
+# Use non-streaming mode (legacy)
+get-the-nini 11473285 --no-streaming
+#+end_src
+
+* Command Line Options
+
+| Option | Description |
+|--------|-------------|
+| =topic_id_or_url= | Ninisite topic ID (numeric) or full discussion URL |
+| =--paginate= / =--no-paginate= | Organize posts under page headings (default: True) |
+| =--streaming= / =--no-streaming= | Stream output as posts are processed (default: True) |
+| =-o=, =--out= | Output file (use "-" for stdout, default: auto-generate) |
+| =--sleep= | Sleep duration between requests in seconds (default: 0) |
+| =--help= | Show help message |
+
+* Output Format
+
+The tool generates org-mode files with the following structure:
+
+#+begin_src org
+#+TITLE: Discussion Title
+
+* Discussion Title
+:PROPERTIES:
+:TOPIC_ID: 11473285
+:ORIGINAL_URL: https://www.ninisite.com/discussion/topic/11473285/
+:SCRAPE_DATE: jalali:1403/05/30/14:30
+:TOTAL_PAGES: 3
+:UNIQUE_AUTHORS: 15
+:AUTHOR: Original Author
+:DATE: 7/4/2023 8:02:48 AM
+:VIEWS: 1234
+:CATEGORIES: Category > Subcategory
+:TOTAL_POSTS: 45
+:END:
+
+** [[URL][1st Page]]
+
+*** @likes/5 AuthorName (1401/06/16, 674 posts) [jalali:1403/05/30/14:30]
+:PROPERTIES:
+:CUSTOM_ID: 12345
+:AUTHOR: AuthorName
+:DATE: 7/4/2023 8:02:48 AM
+:LIKES: 5
+:PAGE: 1
+:END:
+
+Post content here...
+
+** [[URL][2nd Page]]
+
+*** Another Author (1402/01/15, 23 posts) [jalali:1403/05/30/15:45]
+...
+#+end_src
+
+* Features in Detail
+
+** Topic ID Auto-construction
+
+When you provide a numeric topic ID like =11473285=, the tool automatically constructs the full URL:
+- Input: =11473285=
+- Constructed: =https://www.ninisite.com/discussion/topic/11473285/=
+
+** Persian/Arabic Text Support
+
+The tool properly handles right-to-left text using Unicode bidirectional formatting:
+- Adds RLI (Right-to-Left Isolate) and PDI (Pop Directional Isolate) marks
+- Preserves text direction in org-mode output
+- Handles mixed LTR/RTL content correctly
+
+** Metadata Extraction
+
+Each post includes comprehensive metadata:
+- Author information and join date
+- Post count and like count
+- Publication date (converted to Jalali calendar)
+- Reply relationships and quoted content
+- User signatures
+
+** Streaming vs Buffered Mode
+
+- **Streaming (default)**: Processes and outputs content in real-time as pages are fetched
+- **Buffered**: Fetches all content first, then outputs everything at once
+
+* Dependencies
+
+- =requests= - HTTP client for web scraping
+- =beautifulsoup4= - HTML parsing
+- =tqdm= - Progress bars (optional)
+- =pypandoc= - HTML to org-mode conversion
+- =pytz= - Timezone handling
+
+* Examples
+
+** Scrape a Popular Discussion
+
+#+begin_src bash
+# Scrape with progress display and auto-filename
+get-the-nini 16780680
+
+# Output: ninisite_topic_16780680.org
+#+end_src
+
+** Stream to stdout for Processing
+
+#+begin_src bash
+# Stream output for further processing
+get-the-nini 11473285 -o - | grep "Author"
+#+end_src
+
+** Respectful Scraping
+
+#+begin_src bash
+# Add 2-second delay between requests
+get-the-nini 11473285 --sleep 2.0
+#+end_src
+
+* Contributing
+
+This tool is designed for personal archival and research purposes. When using it:
+
+1. Be respectful to the Ninisite servers
+2. Use appropriate delays (=--sleep=) for bulk operations
+3. Follow the site's terms of service
+4. Consider the privacy of discussion participants
+
+* License
+
+[Add appropriate license information]
+
+* Changelog
+
+** v0.1.0
+- Initial release
+- Topic ID auto-construction
+- Streaming output support
+- Persian/Arabic text handling
+- Comprehensive metadata extraction
