@@ -28,6 +28,11 @@ A command-line tool for scraping discussion threads from the Ninisite website. I
     pip install get-the-nini
     #+end_src
 
+    Or install the latest version from git:
+    #+begin_src sh :eval never
+    pip install 'git+https://github.com/NightMachinery/get_the_nini.git'
+    #+end_src
+
 *   *Usage*
     Once installed, the script can be run from the command line, providing a topic ID or a full URL.
 
