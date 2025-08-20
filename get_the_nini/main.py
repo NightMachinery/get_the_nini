@@ -216,90 +216,94 @@ class NinisiteScraper:
             # Add page parameter as first query parameter
             return f"{base_url}?page={page_num}"
 
-    def _get_all_pages_sequentially(
-        self, base_url: str, total_pages: int
-    ) -> List[BeautifulSoup]:
-        """The original sequential implementation of get_all_pages."""
-        # Set up progress bar if tqdm is available and stdout is a tty
-        use_progress = HAS_TQDM and sys.stdout.isatty()
-        if use_progress:
-            pbar = tqdm(total=total_pages, desc="Fetching pages", unit="page")
-        pages = []
-        current_url = base_url
-        page_num = 1
-        while current_url:
-            if not use_progress:
-                log_message(f"Fetching page {page_num}/{total_pages}: {current_url}")
-            soup = self.fetch_page(current_url)
-            if not soup:
-                break
-            pages.append(soup)
-            if use_progress:
-                pbar.update(1)
-            # Find next page URL
-            pagination = soup.find("ul", class_="pagination")
-            if pagination:
-                # Look for next page link (< symbol)
-                next_links = pagination.find_all("a", title="Next page")
-                if next_links:
-                    next_href = next_links.get("href")
-                    if next_href and next_href != "#":
-                        current_url = urljoin(base_url, next_href)
-                        page_num += 1
-                    else:
-                        current_url = None
-                else:
-                    current_url = None
-            else:
-                current_url = None
-        if use_progress:
-            pbar.close()
-        return pages
-
-    def get_all_pages(self, base_url: str, parallel: int = 1) -> List[BeautifulSoup]:
-        """Get all pages of a discussion thread, sequentially or in parallel."""
+    def fetch_and_extract_posts(
+        self,
+        base_url: str,
+        parallel: int = 1,
+        first_page_soup: Optional[BeautifulSoup] = None,
+    ) -> List[Dict]:
+        """
+        Fetches each page of a discussion and immediately extracts posts from it.
+        This combines fetching and processing into a single, memory-efficient process.
+        An optional pre-fetched first page can be provided to avoid re-fetching.
+        """
         total_pages = self.detect_total_pages(base_url)
-        if total_pages == 1:
-            # No need for parallelism if there's only one page to fetch
-            soup = self.fetch_page(base_url)
-            return [soup] if soup else []
-        if parallel <= 1:
-            return self._get_all_pages_sequentially(base_url, total_pages)
+        # Dictionary to hold the results and keep them in order
+        all_posts_by_page: Dict[int, List[Dict]] = {}
+        start_page = 1
+        if first_page_soup:
+            log_message("Processing provided first page...")
+            posts = self.extract_posts_from_page(first_page_soup, 1)
+            if posts:
+                all_posts_by_page[1] = posts
+            start_page = 2  # Start fetching from the second page
+        if total_pages < start_page:
+            # Only one page, and it was already processed, or no pages to fetch
+            return all_posts_by_page.get(1, []) if 1 in all_posts_by_page else []
         log_message(
-            f"Fetching {total_pages} pages in parallel with up to {parallel} workers..."
+            f"Fetching and processing pages {start_page}-{total_pages} with up to {parallel} workers..."
         )
-        urls = {
-            i: self._construct_page_url(base_url, i) for i in range(1, total_pages + 1)
-        }
-        # Using a dictionary to keep pages in order
-        page_soups: Dict[int, BeautifulSoup] = {}
-        use_progress = HAS_TQDM and sys.stdout.isatty()
-        with ThreadPoolExecutor(max_workers=parallel) as executor:
-            # The session object is shared, which is thread-safe
-            future_to_page = {
-                executor.submit(self.fetch_page, url): page
-                for page, url in urls.items()
-            }
-            completed_futures = as_completed(future_to_page)
+
+        def _fetch_and_extract_worker(page_num: int) -> Optional[List[Dict]]:
+            """Worker function to fetch one page and extract its posts."""
+            url = self._construct_page_url(base_url, page_num)
+            soup = self.fetch_page(url)
+            if soup:
+                return self.extract_posts_from_page(soup, page_num)
+            log_message(f"Worker failed to fetch or process page {page_num}")
+            return None
+
+        # If parallel <= 1, run sequentially to avoid thread overhead
+        if parallel <= 1:
+            # Set up progress bar if tqdm is available and stdout is a tty
+            use_progress = HAS_TQDM and sys.stdout.isatty()
+            page_range = range(start_page, total_pages + 1)
             if use_progress:
-                completed_futures = tqdm(
-                    completed_futures,
-                    total=total_pages,
-                    desc="Fetching pages",
-                    unit="page",
-                )
-            for future in completed_futures:
-                page_num = future_to_page[future]
-                try:
-                    soup = future.result()
-                    if soup:
-                        page_soups[page_num] = soup
-                except Exception as exc:
-                    log_message(f"URL {urls[page_num]} generated an exception: {exc}")
-        if not page_soups:
+                pbar = tqdm(page_range, desc="Fetching & Processing", unit="page")
+            else:
+                pbar = page_range
+            for page_num in pbar:
+                if not use_progress:
+                    log_message(
+                        f"Fetching and processing page {page_num}/{total_pages}"
+                    )
+                page_posts = _fetch_and_extract_worker(page_num)
+                if page_posts:
+                    all_posts_by_page[page_num] = page_posts
+            if use_progress:
+                pbar.close()
+        else:
+            use_progress = HAS_TQDM and sys.stdout.isatty()
+            with ThreadPoolExecutor(max_workers=parallel) as executor:
+                future_to_page_num = {
+                    executor.submit(_fetch_and_extract_worker, page_num): page_num
+                    for page_num in range(start_page, total_pages + 1)
+                }
+                completed_futures = as_completed(future_to_page_num)
+                if use_progress:
+                    completed_futures = tqdm(
+                        completed_futures,
+                        total=len(future_to_page_num),
+                        desc="Fetching & Processing",
+                        unit="page",
+                    )
+                for future in completed_futures:
+                    page_num = future_to_page_num[future]
+                    try:
+                        page_posts = future.result()
+                        if page_posts:
+                            all_posts_by_page[page_num] = page_posts
+                    except Exception as exc:
+                        log_message(
+                            f"Page {page_num} fetch/process generated an exception: {exc}"
+                        )
+        if not all_posts_by_page:
             return []
-        # Sort pages by page number and return the soup objects
-        return [page_soups[i] for i in sorted(page_soups.keys())]
+        # Combine the results from all pages in the correct order
+        all_posts = []
+        for i in sorted(all_posts_by_page.keys()):
+            all_posts.extend(all_posts_by_page[i])
+        return all_posts
 
     def extract_topic_metadata(self, soup: BeautifulSoup) -> Dict:
         """Extract metadata from the main topic"""
@@ -338,54 +342,6 @@ class NinisiteScraper:
                     categories.append(name_elem.get_text().strip())
             metadata["categories"] = categories[1:]  # Skip the first "تبادل نظر"
         return metadata
-
-    def extract_posts(
-        self, pages: List[BeautifulSoup], parallel: int = 1
-    ) -> List[Dict]:
-        """Extract all posts from all pages, processing pages in parallel."""
-        if parallel <= 1:
-            # Fallback to the original sequential implementation
-            all_posts = []
-            for page_num, soup in enumerate(pages, 1):
-                all_posts.extend(self.extract_posts_from_page(soup, page_num))
-            return all_posts
-        log_message(
-            f"Processing {len(pages)} pages in parallel with up to {parallel} workers..."
-        )
-        # Dictionary to hold the results and keep them in order
-        posts_by_page: Dict[int, List[Dict]] = {}
-        use_progress = HAS_TQDM and sys.stdout.isatty()
-        with ThreadPoolExecutor(max_workers=parallel) as executor:
-            # Map each future to its page number
-            future_to_page_num = {
-                executor.submit(self.extract_posts_from_page, soup, page_num): page_num
-                for page_num, soup in enumerate(pages, 1)
-            }
-            completed_futures = as_completed(future_to_page_num)
-            if use_progress:
-                completed_futures = tqdm(
-                    completed_futures,
-                    total=len(pages),
-                    desc="Processing pages",
-                    unit="page",
-                )
-            for future in completed_futures:
-                page_num = future_to_page_num[future]
-                try:
-                    page_posts = future.result()
-                    if page_posts:
-                        posts_by_page[page_num] = page_posts
-                except Exception as exc:
-                    log_message(
-                        f"Page {page_num} processing generated an exception: {exc}"
-                    )
-        if not posts_by_page:
-            return []
-        # Combine the results from all pages in the correct order
-        all_posts = []
-        for i in sorted(posts_by_page.keys()):
-            all_posts.extend(posts_by_page[i])
-        return all_posts
 
     def extract_post_data(self, article, is_main_topic=False) -> Optional[Dict]:
         """Extract data from a single post article"""
@@ -1061,15 +1017,18 @@ class NinisiteScraper:
     def scrape_discussion(self, url: str, paginate: bool = True) -> str:
         """Main method to scrape a discussion and return org-mode formatted content"""
         log_message(f"Starting to scrape: {url}")
-        # Get all pages
-        pages = self.get_all_pages(url)
-        if not pages:
-            raise Exception("Could not fetch any pages")
-        log_message(f"Found {len(pages)} pages")
-        # Extract metadata from first page
-        metadata = self.extract_topic_metadata(pages)
-        # Extract all posts
-        posts = self.extract_posts(pages)
+        # Fetch first page to get metadata
+        first_page_soup = self.fetch_page(url)
+        if not first_page_soup:
+            raise Exception("Could not fetch the first page.")
+        metadata = self.extract_topic_metadata(first_page_soup)
+        # Fetch and extract all posts. Since this is a simple, non-parallel
+        # version, we use parallel=1 and pass the first page.
+        posts = self.fetch_and_extract_posts(
+            url, parallel=1, first_page_soup=first_page_soup
+        )
+        if not posts:
+            raise Exception("No posts found")
         log_message(f"Extracted {len(posts)} posts")
         # Format as org-mode
         return self.format_org_mode(metadata, posts, url, paginate)
@@ -1225,12 +1184,19 @@ def main():
                 scraper.scrape_discussion_streaming(url, writer, args.paginate)
         else:
             # Buffered modes
-            # Fetch data once
-            pages = scraper.get_all_pages(url, parallel=args.parallel)
-            if not pages:
-                raise Exception("Could not fetch any pages")
-            metadata = scraper.extract_topic_metadata(pages[0])
-            posts = scraper.extract_posts(pages, parallel=(args.parallel * 4))
+            # Fetch first page to get metadata
+            log_message("Fetching first page for metadata...")
+            first_page_soup = scraper.fetch_page(url)
+            if not first_page_soup:
+                raise Exception("Could not fetch the first page.")
+            metadata = scraper.extract_topic_metadata(first_page_soup)
+            # Fetch and process all posts, reusing the first page
+            posts = scraper.fetch_and_extract_posts(
+                url, parallel=args.parallel, first_page_soup=first_page_soup
+            )
+            if not posts:
+                raise Exception("Could not extract any posts.")
+            log_message(f"Extracted a total of {len(posts)} posts.")
             if fmt == "org":
                 content = scraper.format_org_mode(metadata, posts, url, args.paginate)
             elif fmt == "md":
