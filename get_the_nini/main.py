@@ -291,7 +291,7 @@ class NinisiteScraper:
         if quote_elem:
             reply_msg = quote_elem.find("div", class_="reply-message")
             if reply_msg:
-                post["quoted_content"] = reply_msg.get_text().strip()
+                post["quoted_content"] = self.html_to_org_mode(str(reply_msg))
                 # Get the referenced post ID
                 ref_id = reply_msg.get("data-id")
                 if ref_id:
@@ -305,7 +305,7 @@ class NinisiteScraper:
         # Signature
         signature_elem = article.find("div", class_="topic-post__signature")
         if signature_elem:
-            post["signature"] = signature_elem.get_text().strip()
+            post["signature"] = self.html_to_org_mode(str(signature_elem))
         post["is_main_topic"] = is_main_topic
         return post if post.get("content") or post.get("is_main_topic") else None
 
@@ -826,8 +826,7 @@ class NinisiteScraper:
             writer.writeln("#+begin_quote")
             quoted_lines = post["quoted_content"].split("\n")
             for line in quoted_lines:
-                if line.strip():
-                    writer.writeln(line.strip())
+                writer.writeln(line)
             writer.writeln("#+end_quote")
             writer.writeln()
         # Main content

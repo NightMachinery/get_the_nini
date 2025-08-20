@@ -10,6 +10,18 @@ Write readme.org which documents the project. link to examples.
 * DRY: org-mode streaming and non-streaming must reuse code
 
 * @markdown
+** _
+#+begin_verse
+```
+                post["quoted_content"] = self.html_to_org_mode(str(reply_msg))
+```
+```
+            post["signature"] = self.html_to_org_mode(str(signature_elem))
+```
+
+also support markdown etc. here
+#+end_verse
+
 ** also add RTL isolate etc. in markdown output
 #+BEGIN_SRC markdown
 ### پسرهستم؛ (1402/01/15, 2458 posts) [jalali:1403/07/04/08:06]
