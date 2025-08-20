@@ -40,6 +40,36 @@ def construct_default_filename(topic_id: str, fmt: str) -> str:
     return f"ninisite_{topic_id}{ext}"
 
 
+import time, threading
+
+
+class TokenBucketLimiter:
+    def __init__(self, rate_per_sec: float, capacity: int | None = None):
+        self.rate = float(rate_per_sec)
+        self.capacity = capacity or max(1, int(self.rate))  # burst size
+        self.tokens = float(self.capacity)
+        self.last = time.monotonic()
+        self.lock = threading.Lock()
+
+    def acquire(self):
+        while True:
+            with self.lock:
+                now = time.monotonic()
+                # refill based on elapsed time
+                elapsed = now - self.last
+                if elapsed > 0:
+                    self.tokens = min(self.capacity, self.tokens + elapsed * self.rate)
+                    self.last = now
+                if self.tokens >= 1.0:
+                    self.tokens -= 1.0
+                    return
+                # compute wait needed for 1 token
+                need = 1.0 - self.tokens
+                wait = need / self.rate
+            # sleep OUTSIDE the lock
+            time.sleep(wait)
+
+
 class OrgWriter:
     """Writer class for streaming org-mode output to file or stdout"""
 
@@ -119,7 +149,16 @@ class NinisiteScraper:
         self.backoff_factor = backoff_factor
         # For synchronizing parallel requests
         self.last_request_time = 0
-        self.request_lock = threading.Lock()
+        ##
+        # self.request_lock = threading.Lock()
+        self.rate_limiter = TokenBucketLimiter(
+            # rate_per_sec=25,
+            # capacity=50,
+            rate_per_sec=25,
+            capacity=25,
+        )
+        #: @GPT5T With a burst capacity, you can start several requests immediately (up to capacity) and then refill at rate_per_sec. That uses network latency better than strictly spacing every request by 1/rps seconds.
+        ##
         self.backoff_event = threading.Event()
         self.backoff_event.set()
 
@@ -128,14 +167,8 @@ class NinisiteScraper:
         for attempt in range(self.max_retries):
             # 1. Wait if another thread has triggered a global backoff
             self.backoff_event.wait()
-            # 2. Ensure sleep duration between consecutive requests across all threads
-            with self.request_lock:
-                now = time.time()
-                elapsed = now - self.last_request_time
-                if elapsed < self.sleep_duration:
-                    time.sleep(self.sleep_duration - elapsed)
-                # Update last request time *after* sleeping, just before the request
-                self.last_request_time = time.time()
+            # 2. Rate limiting
+            self.rate_limiter.acquire()
             # 3. Try to fetch the page
             try:
                 response = self.session.get(url, timeout=10)
@@ -150,10 +183,12 @@ class NinisiteScraper:
                         f"Pausing all threads for {sleep_time}s. Retrying... (Attempt {attempt + 1}/{self.max_retries})"
                     )
                     # Set the global event to make other threads wait
-                    self.backoff_event.clear()
-                    time.sleep(sleep_time)
-                    # Clear the event to allow all threads to proceed
-                    self.backoff_event.set()
+                    if sleep_time:
+                        self.backoff_event.clear()
+                        time.sleep(sleep_time)
+                        # Clear the event to allow all threads to proceed
+                        self.backoff_event.set()
+
                     continue  # Go to the next retry attempt
                 else:
                     # Other HTTP error or max retries exceeded for 429
@@ -382,7 +417,9 @@ class NinisiteScraper:
         if quote_elem:
             reply_msg = quote_elem.find("div", class_="reply-message")
             if reply_msg:
-                post["quoted_content"] = self.html_to_org_mode(reply_msg, strip_links=True)
+                post["quoted_content"] = self.html_to_org_mode(
+                    reply_msg, strip_links=True
+                )
                 # Get the referenced post ID
                 ref_id = reply_msg.get("data-id")
                 if ref_id:
@@ -441,7 +478,12 @@ class NinisiteScraper:
                 post_count = match.group(1)
         return join_date, post_count
 
-    def html_to_org_mode(self, html_content, strip_links: bool = False) -> str:
+    def html_to_org_mode(
+        self,
+        html_content,
+        strip_links: bool = False,
+        readable_line_breaks_p=True,
+    ) -> str:
         """Convert HTML content to org-mode using pypandoc, optionally stripping links."""
         if not isinstance(html_content, PageElement):
             log_message(
@@ -470,11 +512,15 @@ class NinisiteScraper:
             org_content = pypandoc.convert_text(html_content, "org", format="html")
             # Replace pandoc's hard line breaks (\ followed by a newline) with a
             # paragraph break (two newlines).
-            org_content = org_content.replace("\\\\\n", "\n\n")
+            org_content = org_content.replace("\\\\\n", "\n\n\n")
 
             # Remove any extra newlines that might have been added
-            while "\n\n\n" in org_content:
-                org_content = org_content.replace("\n\n\n", "\n\n")
+            while "\n\n\n\n" in org_content:
+                org_content = org_content.replace("\n\n\n\n", "\n\n\n")
+
+            if readable_line_breaks_p:
+                org_content = org_content.replace("\n\n", "\n")
+                #: A single line break in org is actually a space, but since we mostly just read org on emacs and do not convert it, we can ignore this technicality.
 
             return org_content.strip()
         except Exception as e:
@@ -820,7 +866,7 @@ class NinisiteScraper:
                 else post["reply_to_id"]
             )
             lines.append(f"- [[#{reply_id}][In Reply To]]")
-            lines.append("")
+
         # Quoted content (if replying to someone)
         if post.get("quoted_content"):
             lines.append("#+begin_quote")
@@ -1092,7 +1138,7 @@ def main():
     parser.add_argument(
         "--sleep",
         type=float,
-        default=0.2,
+        default=0.0,
         help="Sleep duration between requests in seconds (default: 0.2)",
     )
     parser.add_argument(

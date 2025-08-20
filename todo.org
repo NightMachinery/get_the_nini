@@ -1,14 +1,64 @@
 #+TITLE: get_the_nini/todo
 
-* _
+* DONE _
 #+begin_verse
 include examples for all output formats in `examples/` for `https://www.ninisite.com/discussion/topic/11473285/`.
 
 Write readme.org which documents the project. link to examples.
 #+end_verse
 
-* DRY: org-mode streaming and non-streaming must reuse code
-* the fetching and post conversion must happen in a single function (currently we first fetch all then convert all)
+* @done? DRY: org-mode streaming and non-streaming must reuse code
+
+* DONE the fetching and post conversion must happen in a single function (currently we first fetch all then convert all)
+
+* remove =--sleep=, it does nothing now
+
+* @GPT5T
+#+BEGIN_SRC markdown
+Pretty much, yeah. Firing up *lots* of pandoc processes rarely makes things “finish fast” after a point—and often makes them slower.
+
+Why:
+
+,* **CPU-bound work:** Pandoc’s HTML→ORG/MD conversion is heavy parsing/AST work. Once you have about `#physical_cores` concurrent conversions, you’re saturated. More processes just fight for cache/CPU and add context-switching.
+,* **Startup overhead:** Every `pypandoc.convert_*` spawns a new OS process, loads readers/writers, allocates memory, etc. Thousands of short conversions = lots of wasted time in process startup/teardown.
+,* **I/O & memory pressure:** Many conversions at once hammer the disk and allocator, hurting throughput.
+,* **Diminishing returns:** Beyond \~`os.cpu_count()` workers you typically *lose* performance.
+
+What to do instead (this is what moves the needle):
+
+1. **Stop converting per post.** Defer conversion; keep `content_html` during scraping.
+2. **Batch the conversions.**
+
+   ,* Easiest: **one pandoc run per page** (collect that page’s posts into a synthetic HTML doc with `<h3 id="post-...">` headings; pandoc will turn those into org headings cleanly).
+   ,* Best: **one pandoc run per topic** if you can structure the HTML so it becomes the exact org you want.
+3. **Cap conversion concurrency to cores** if you still parallelize: use a `ProcessPoolExecutor(max_workers=os.cpu_count())`. Threads won’t help; use **processes** for CPU work.
+4. **Trim work done by pandoc:** don’t convert to both org *and* md for the same post; convert only to the final target. Avoid filters; pass only the needed options.
+
+A tiny sketch:
+
+```python
+# during scraping: keep HTML only
+post["content_html"] = str(message_elem)
+
+# later, per page:
+def page_html(title, posts):
+    body = []
+    for p in posts:
+        aid = p.get("id", "")
+        author = p.get("author", "Unknown")
+        body.append(f'<h3 id="{aid}">{author}</h3>')
+        body.append(p["content_html"])
+    return "<html><body>" + "\n".join(body) + "</body></html>"
+
+html_doc = page_html(page_title, posts_on_page)
+org_doc = pypandoc.convert_text(html_doc, "org", format="html")
+# Write org_doc directly (it already has headings), instead of N per-post conversions.
+```
+
+If you *must* keep per-post conversion, queue posts into a **Process** pool and set `max_workers=os.cpu_count()`. But you’ll still be much faster doing fewer, larger pandoc runs.
+
+So: “lots of pandocs in parallel” isn’t the fast path—**fewer, fatter conversions** (and at most one per core concurrently) is.
+#+END_SRC
 
 * _
 #+begin_verse
