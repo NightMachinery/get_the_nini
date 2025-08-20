@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "get-the-nini"
-version = "0.1.1"
+version = "0.1.2"
 description = "Ninisite Scraper: Fetches all pages of a Ninisite discussion and formats in org-mode, Markdown, or JSON"
 authors = ["Feraidoon <feraidoonmehri@gmail.com>"]
 readme = "README.org"
