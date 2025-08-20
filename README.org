@@ -1,6 +1,7 @@
 #+TITLE: get-the-nini
 #+AUTHOR: get-the-nini Project
 #+DATE: 2025
+#+OPTIONS: toc:2 num:nil
 
 * Overview
 
@@ -10,6 +11,8 @@
 
 - **Topic ID Support**: Simply provide a numeric topic ID (e.g., =11473285=) and the tool automatically constructs the full URL
 - **Full URL Support**: Also accepts complete Ninisite discussion URLs
+- **Multi-format Output**: Org-mode, Markdown, and JSON
+- **Format Auto-detection**: Use =--format auto= (default) to guess from output file extension; if no output path is provided, defaults to org
 - **Org-mode Output**: Formats scraped content as structured org-mode files
 - **Streaming Output**: Real-time processing and output as pages are scraped
 - **Persian/Arabic Text Support**: Proper handling of RTL text with bidirectional formatting
@@ -78,6 +81,11 @@ get-the-nini 11473285 --sleep 1.0
 
 # Use non-streaming mode (legacy)
 get-the-nini 11473285 --no-streaming
+
+# Choose output format explicitly (auto-detected by -o extension if omitted)
+get-the-nini 11473285 --format org    -o topic.org
+get-the-nini 11473285 --format md     -o topic.md
+get-the-nini 11473285 --format json   -o topic.json
 #+end_src
 
 * Command Line Options
@@ -88,10 +96,11 @@ get-the-nini 11473285 --no-streaming
 | =--paginate= / =--no-paginate= | Organize posts under page headings (default: True) |
 | =--streaming= / =--no-streaming= | Stream output as posts are processed (default: True) |
 | =-o=, =--out= | Output file (use "-" for stdout, default: auto-generate) |
+| =--format= | Output format: =auto=, =org=, =md=/=markdown=, =json= (default: =auto=) |
 | =--sleep= | Sleep duration between requests in seconds (default: 0) |
 | =--help= | Show help message |
 
-* Output Format
+* Output Formats
 
 The tool generates org-mode files with the following structure:
 
@@ -131,6 +140,14 @@ Post content here...
 ...
 #+end_src
 
+** Markdown
+
+The Markdown format mirrors the org hierarchy using headings and preserves quotes, signatures, and basic metadata.
+
+** JSON
+
+Structured JSON with top-level metadata and a =posts= array, including multiple content representations: =content_org=, =content_html=, and =content_text=.
+
 * Features in Detail
 
 ** Topic ID Auto-construction
@@ -169,6 +186,18 @@ Each post includes comprehensive metadata:
 - =pytz= - Timezone handling
 
 * Examples
+
+** Generate Examples (all formats)
+
+Example artifacts for the discussion =https://www.ninisite.com/discussion/topic/11473285/= can be generated via the helper script in the =examples/= directory:
+
+#+begin_src bash
+cd examples
+./generate_examples.sh
+# Creates: ninisite_topic_11473285.{org,md,json}
+#+end_src
+
+Browse the folder: [[./examples/][examples/]]
 
 ** Scrape a Popular Discussion
 

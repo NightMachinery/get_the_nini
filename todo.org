@@ -1,6 +1,6 @@
 #+TITLE: get_the_nini/todo
 
-*
+* _
 #+BEGIN_SRC markdown
 add `--format` which can `org`, `md` (or `markdown`), or `json`. default to `auto` which guesses based on provided output path extension. when no path provided, default to org.
 
@@ -9,6 +9,19 @@ include examples for all output formats in `examples/` for `https://www.ninisite
 
 Write readme.org which documents the project. link to examples.
 #+END_SRC
+
+* _
+#+BEGIN_SRC markdown
+in org output, replace `r"\\$"` linebreaks with `\n`.
+#+END_SRC
+
+* _
+#+begin_verse
+```
+            output_file = f"ninisite_topic_{topic_id}.org"
+```
+DRY for constructing output names. also change it to `"ninisite_{topic_id}.org"`.
+#+end_verse
 
 * scraping
 ** _
@@ -7730,16 +7743,17 @@ remove the extra line break.
 
 #+BEGIN_SRC markdown
 ```
-                # Page heading
-                if page_num == 1:
-                    org_content.append(f"** [[{page_url}][1st Page]]")
-                elif page_num == 2:
-                    org_content.append(f"** [[{page_url}][2nd Page]]")
-                elif page_num == 3:
-                    org_content.append(f"** [[{page_url}][3rd Page]]")
-                else:
-                    org_content.append(f"** [[{page_url}][{page_num}th Page]]")
+        def page_heading(pn: int) -> str:
+            if pn == 1:
+                return "1st Page"
+            if pn == 2:
+                return "2nd Page"
+            if pn == 3:
+                return "3rd Page"
+            return f"{pn}th Page"
 ```
 we should check the last char, as pages might be big, like `101` etc.
+
+Give your edits as diffs. 
 #+END_SRC
 
