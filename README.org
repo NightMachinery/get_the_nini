@@ -1,245 +1,77 @@
-#+TITLE: get-the-nini
-#+AUTHOR: get-the-nini Project
-#+DATE: 2025
-#+OPTIONS: toc:2 num:nil
+#+TITLE: get-the-nini: Ninisite Post Scraper
 
-* Overview
+A command-line tool for scraping discussion threads from the Ninisite website. It can take a topic ID or a full URL and save the entire conversation into a single, well-structured file.
 
-=get-the-nini= is a Python tool for scraping Ninisite discussion posts and formatting them as org-mode files. It can accept either topic IDs or full URLs, automatically constructing the appropriate Ninisite URLs when given topic IDs.
+*   *Code*: [[file:get_the_nini/main.py]]
 
-* Features
+*   *Purpose*: This tool is designed to archive and analyze discussion threads from ninisite.com, converting them into portable and easy-to-read formats.
 
-- **Topic ID Support**: Simply provide a numeric topic ID (e.g., =11473285=) and the tool automatically constructs the full URL
-- **Full URL Support**: Also accepts complete Ninisite discussion URLs
-- **Multi-format Output**: Org-mode, Markdown, and JSON
-- **Format Auto-detection**: Use =--format auto= (default) to guess from output file extension; if no output path is provided, defaults to org
-- **Org-mode Output**: Formats scraped content as structured org-mode files
-- **Streaming Output**: Real-time processing and output as pages are scraped
-- **Persian/Arabic Text Support**: Proper handling of RTL text with bidirectional formatting
-- **Progress Tracking**: Visual progress bars when available
-- **Flexible Output**: Output to files, stdout, or auto-generated filenames
-- **Pagination**: Organizes posts by page with proper linking
-- **Metadata Extraction**: Captures author info, dates, likes, categories, and more
+*   *Features*
+    - Scrape entire discussion threads by Topic ID or URL.
+    - Automatically handles pagination.
+    - Outputs in multiple formats: **Org-mode**, **Markdown**, and **JSON**.
+    - Extracts rich metadata including topic title, author, categories, views, and post dates.
+    - Preserves the structure of posts, including replies and quoted content.
+    - Streaming output for Org-mode, ideal for large topics or viewing progress live.
+    - Progress bar during page fetching.
 
-* Installation
+*   *Installation*
+    This tool can be installed from PyPI using pip.
 
-** Using Poetry (Recommended)
+    **Prerequisites**
+    1.  **Python 3**: Ensure you have Python 3 installed.
+    2.  **Pandoc**: The `pypandoc` library is used for converting HTML to other formats. You must have Pandoc installed and available on your system's PATH. Please see the [Pandoc installation instructions](https://pandoc.org/installing.html).
 
-#+begin_src bash
-# Clone or download the project
-cd get_the_nini
+    **Install with pip**
+    To install the package, run the following command in your terminal:
+    #+begin_src sh
+    pip install get-the-nini
+    #+end_src
 
-# Install with Poetry
-poetry install
+*   *Usage*
+    Once installed, the script can be run from the command line, providing a topic ID or a full URL.
 
-# The binary will be available as 'get-the-nini'
-poetry run get-the-nini --help
+**Syntax**
+#+begin_src sh
+get-the-nini [OPTIONS] <TOPIC_ID_OR_URL>
 #+end_src
 
-** Direct Python Execution
+**Examples**
 
-#+begin_src bash
-# Install dependencies manually
-pip install requests beautifulsoup4 tqdm pypandoc pytz
+1.  **Scrape by Topic ID (Default Org-mode output)**
+    This command will scrape the discussion for topic ID `11473285` and save it to an automatically generated file named `ninisite_11473285.org`.
+    #+begin_src sh
+    get-the-nini 11473285
+    #+end_src
 
-# Run directly
-python get_the_nini/main.py --help
-#+end_src
+2.  **Scrape using a full URL**
+    #+begin_src sh
+    get-the-nini "https://www.ninisite.com/discussion/topic/11473285/"
+    #+end_src
 
-* Usage
+3.  **Specify an output file and format (Markdown)**
+    The format can be inferred from the file extension, or specified explicitly with `--format`.
+    #+begin_src sh
+    get-the-nini 11473285 -o output.md
+    #+end_src
 
-** Basic Usage with Topic ID
+4.  **Output as JSON to stdout**
+    Use `-o -` to direct output to standard output, which can be redirected to a file.
+    #+begin_src sh
+    get-the-nini 11473285 --format json -o - > ninisite_11473285.json
+    #+end_src
 
-#+begin_src bash
-# Scrape topic 11473285 - just provide the numeric ID
-get-the-nini 11473285
+*   *Output Formats & Examples*
+    The scraper can produce output in three different formats. Below are links to examples generated from the same topic.
 
-# Output will be saved to: ninisite_topic_11473285.org
-#+end_src
+**Org-mode (.org)**
+A highly structured and readable plain-text format, perfect for use in Emacs. This is the default format and supports streaming output directly to a file as pages are scraped.
+-   *Example*: [[file:examples/ninisite_11473285.org]]
 
-** Basic Usage with Full URL
+**Markdown (.md)**
+A popular lightweight markup language for easy conversion to HTML and other formats.
+-   *Example*: [[file:examples/ninisite_11473285.md]]
 
-#+begin_src bash
-# You can also provide the complete URL
-get-the-nini "https://www.ninisite.com/discussion/topic/11473285/"
-#+end_src
-
-** Advanced Options
-
-#+begin_src bash
-# Output to stdout
-get-the-nini 11473285 -o -
-
-# Output to specific file
-get-the-nini 11473285 -o my_discussion.org
-
-# Disable pagination (flatten structure)
-get-the-nini 11473285 --no-paginate
-
-# Add delay between requests (be respectful)
-get-the-nini 11473285 --sleep 1.0
-
-# Use non-streaming mode (legacy)
-get-the-nini 11473285 --no-streaming
-
-# Choose output format explicitly (auto-detected by -o extension if omitted)
-get-the-nini 11473285 --format org    -o topic.org
-get-the-nini 11473285 --format md     -o topic.md
-get-the-nini 11473285 --format json   -o topic.json
-#+end_src
-
-* Command Line Options
-
-| Option | Description |
-|--------|-------------|
-| =topic_id_or_url= | Ninisite topic ID (numeric) or full discussion URL |
-| =--paginate= / =--no-paginate= | Organize posts under page headings (default: True) |
-| =--streaming= / =--no-streaming= | Stream output as posts are processed (default: True) |
-| =-o=, =--out= | Output file (use "-" for stdout, default: auto-generate) |
-| =--format= | Output format: =auto=, =org=, =md=/=markdown=, =json= (default: =auto=) |
-| =--sleep= | Sleep duration between requests in seconds (default: 0) |
-| =--help= | Show help message |
-
-* Output Formats
-
-The tool generates org-mode files with the following structure:
-
-#+begin_src org
-#+TITLE: Discussion Title
-
-* Discussion Title
-:PROPERTIES:
-:TOPIC_ID: 11473285
-:ORIGINAL_URL: https://www.ninisite.com/discussion/topic/11473285/
-:SCRAPE_DATE: jalali:1403/05/30/14:30
-:TOTAL_PAGES: 3
-:UNIQUE_AUTHORS: 15
-:AUTHOR: Original Author
-:DATE: 7/4/2023 8:02:48 AM
-:VIEWS: 1234
-:CATEGORIES: Category > Subcategory
-:TOTAL_POSTS: 45
-:END:
-
-** [[URL][1st Page]]
-
-*** @likes/5 AuthorName (1401/06/16, 674 posts) [jalali:1403/05/30/14:30]
-:PROPERTIES:
-:CUSTOM_ID: 12345
-:AUTHOR: AuthorName
-:DATE: 7/4/2023 8:02:48 AM
-:LIKES: 5
-:PAGE: 1
-:END:
-
-Post content here...
-
-** [[URL][2nd Page]]
-
-*** Another Author (1402/01/15, 23 posts) [jalali:1403/05/30/15:45]
-...
-#+end_src
-
-** Markdown
-
-The Markdown format mirrors the org hierarchy using headings and preserves quotes, signatures, and basic metadata.
-
-** JSON
-
-Structured JSON with top-level metadata and a =posts= array, including multiple content representations: =content_org=, =content_html=, and =content_text=.
-
-* Features in Detail
-
-** Topic ID Auto-construction
-
-When you provide a numeric topic ID like =11473285=, the tool automatically constructs the full URL:
-- Input: =11473285=
-- Constructed: =https://www.ninisite.com/discussion/topic/11473285/=
-
-** Persian/Arabic Text Support
-
-The tool properly handles right-to-left text using Unicode bidirectional formatting:
-- Adds RLI (Right-to-Left Isolate) and PDI (Pop Directional Isolate) marks
-- Preserves text direction in org-mode output
-- Handles mixed LTR/RTL content correctly
-
-** Metadata Extraction
-
-Each post includes comprehensive metadata:
-- Author information and join date
-- Post count and like count
-- Publication date (converted to Jalali calendar)
-- Reply relationships and quoted content
-- User signatures
-
-** Streaming vs Buffered Mode
-
-- **Streaming (default)**: Processes and outputs content in real-time as pages are fetched
-- **Buffered**: Fetches all content first, then outputs everything at once
-
-* Dependencies
-
-- =requests= - HTTP client for web scraping
-- =beautifulsoup4= - HTML parsing
-- =tqdm= - Progress bars (optional)
-- =pypandoc= - HTML to org-mode conversion
-- =pytz= - Timezone handling
-
-* Examples
-
-** Generate Examples (all formats)
-
-Example artifacts for the discussion =https://www.ninisite.com/discussion/topic/11473285/= can be generated via the helper script in the =examples/= directory:
-
-#+begin_src bash
-cd examples
-./generate_examples.sh
-# Creates: ninisite_topic_11473285.{org,md,json}
-#+end_src
-
-Browse the folder: [[./examples/][examples/]]
-
-** Scrape a Popular Discussion
-
-#+begin_src bash
-# Scrape with progress display and auto-filename
-get-the-nini 16780680
-
-# Output: ninisite_topic_16780680.org
-#+end_src
-
-** Stream to stdout for Processing
-
-#+begin_src bash
-# Stream output for further processing
-get-the-nini 11473285 -o - | grep "Author"
-#+end_src
-
-** Respectful Scraping
-
-#+begin_src bash
-# Add 2-second delay between requests
-get-the-nini 11473285 --sleep 2.0
-#+end_src
-
-* Contributing
-
-This tool is designed for personal archival and research purposes. When using it:
-
-1. Be respectful to the Ninisite servers
-2. Use appropriate delays (=--sleep=) for bulk operations
-3. Follow the site's terms of service
-4. Consider the privacy of discussion participants
-
-* License
-
-[Add appropriate license information]
-
-* Changelog
-
-** v0.1.0
-- Initial release
-- Topic ID auto-construction
-- Streaming output support
-- Persian/Arabic text handling
-- Comprehensive metadata extraction
+**JSON (.json)**
+A structured data format that includes all metadata and post content, suitable for programmatic analysis or integration into other systems.
+-   *Example*: [[file:examples/ninisite_11473285.json]]

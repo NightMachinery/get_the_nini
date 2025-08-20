@@ -7,6 +7,8 @@ include examples for all output formats in `examples/` for `https://www.ninisite
 Write readme.org which documents the project. link to examples.
 #+end_verse
 
+* DRY: org-mode streaming and non-streaming must reuse code
+
 * @markdown
 ** also add RTL isolate etc. in markdown output
 #+BEGIN_SRC markdown
