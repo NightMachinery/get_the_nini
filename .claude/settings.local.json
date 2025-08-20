@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.ninisite.com)",
+      "Bash(python3:*)",
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
