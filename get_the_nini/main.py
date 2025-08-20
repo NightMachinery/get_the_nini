@@ -373,7 +373,7 @@ class NinisiteScraper:
         message_elem = article.find("div", class_="post-message")
         if message_elem:
             # Convert HTML to org-mode using pandoc
-            content = self.html_to_org_mode(message_elem)
+            content = self.html_to_org_mode(message_elem, strip_links=False)
             post["content"] = content
             # Also get HTML for potential formatting
             post["content_html"] = str(message_elem)
@@ -382,7 +382,7 @@ class NinisiteScraper:
         if quote_elem:
             reply_msg = quote_elem.find("div", class_="reply-message")
             if reply_msg:
-                post["quoted_content"] = self.html_to_org_mode(reply_msg)
+                post["quoted_content"] = self.html_to_org_mode(reply_msg, strip_links=True)
                 # Get the referenced post ID
                 ref_id = reply_msg.get("data-id")
                 if ref_id:
@@ -396,7 +396,7 @@ class NinisiteScraper:
         # Signature
         signature_elem = article.find("div", class_="topic-post__signature")
         if signature_elem:
-            post["signature"] = self.html_to_org_mode(signature_elem)
+            post["signature"] = self.html_to_org_mode(signature_elem, strip_links=False)
         post["is_main_topic"] = is_main_topic
         return post if post.get("content") or post.get("is_main_topic") else None
 
@@ -441,8 +441,8 @@ class NinisiteScraper:
                 post_count = match.group(1)
         return join_date, post_count
 
-    def html_to_org_mode(self, html_content) -> str:
-        """Convert HTML content to org-mode using pypandoc"""
+    def html_to_org_mode(self, html_content, strip_links: bool = False) -> str:
+        """Convert HTML content to org-mode using pypandoc, optionally stripping links."""
         if not isinstance(html_content, PageElement):
             log_message(
                 f"Warning: html_content is not a BeautifulSoup PageElement object (type was {type(html_content)}). Please pass a valid object."
@@ -456,6 +456,11 @@ class NinisiteScraper:
             # An element is considered empty if it has no text content after stripping whitespace.
             if not i_tag.get_text(strip=True):
                 i_tag.decompose()
+
+        # Strip links if requested
+        if strip_links:
+            for a_tag in html_content.find_all("a"):
+                a_tag.unwrap()  # Replaces the tag with its contents (the text)
 
         # Convert the modified BeautifulSoup object to a string.
         html_content = str(html_content)

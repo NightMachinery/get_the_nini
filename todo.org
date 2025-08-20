@@ -10,6 +10,14 @@ Write readme.org which documents the project. link to examples.
 * DRY: org-mode streaming and non-streaming must reuse code
 * the fetching and post conversion must happen in a single function (currently we first fetch all then convert all)
 
+* _
+#+begin_verse
+```
+                post["quoted_content"] = self.html_to_org_mode(reply_msg)
+```
+add `strip_links` to html_to_org_mode which strips all hrefs to only their text.
+#+end_verse
+
 * @markdown
 ** _
 #+begin_verse
