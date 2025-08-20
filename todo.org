@@ -8,6 +8,7 @@ Write readme.org which documents the project. link to examples.
 #+end_verse
 
 * DRY: org-mode streaming and non-streaming must reuse code
+* the fetching and post conversion must happen in a single function (currently we first fetch all then convert all)
 
 * @markdown
 ** _
