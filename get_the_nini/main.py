@@ -357,7 +357,7 @@ class NinisiteScraper:
             org_content = pypandoc.convert_text(html_content, "org", format="html")
             # Replace pandoc's hard line breaks (\ followed by a newline) with a
             # paragraph break (two newlines).
-            org_content = org_content.replace("\\\n", "\n\n")
+            org_content = org_content.replace("\\\\\n", "\n\n")
             return org_content.strip()
         except Exception as e:
             log_message(
