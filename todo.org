@@ -1,10 +1,12 @@
 #+TITLE: get_the_nini/todo
 
 * scraping
+** _
 #+BEGIN_SRC markdown
 Write a Python script that fetches all pages of a Niniesite post, in order and without duplication. Use pandoc to convert it to markdown. Include metadata such as user names etc. Here is an example url: `https://www.ninisite.com/discussion/topic/11473285/%DA%AF%D8%B1%D8%AF%D8%B4-%D8%AF%D8%B1-%D8%AA%D9%87%D8%B1%D8%A7%D9%86`. Test the script.
 #+END_SRC
 
+** _
 #+BEGIN_SRC markdown
 Write a Python script that fetches all pages of a Niniesite post, in order and without duplication, and formats it in beautiful org-mode. You can use pandoc. Include metadata such as user names etc. Use org headings, property drawers, etc.
 
@@ -7696,4 +7698,22 @@ Here is the full html content of the example URL:
 
 </html>
 ```
+#+END_SRC
+
+#+BEGIN_SRC markdown
+1. quotes in org-mode are with
+```
+#+begin_quote
+
+#+end_quote
+```
+- no need for the "Quoted" heading
+2. the headings should be formatted: `@likes/{like_count} {author} 
+({author_join_date}, {author_post_count} posts) [jalali:yyyy/mm/dd/hh:mm] (in 
+tehran timezone, the site itself is probably already in tehran timezone)
+3. headings should have a `:CUSTOM_ID:` which is their post ID. posts that are
+in reply to another post should include a link to it as `- 
+[[id:{REPLY_TO_ID}][In Reply To]]`.
+4. there is an extra newline between headings and their property drawers. 
+remove the extra line break.
 #+END_SRC
