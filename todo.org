@@ -1,5 +1,17 @@
 #+TITLE: get_the_nini/todo
 
+* org-mode custom id links, dont convert correctly to markdown? (when viewed in moon reader)
+#+begin_verse
+pandoc org-mode internal link custom_id
+#+end_verse
+
+** @me [[https://github.com/jgm/pandoc/issues/11066][org-mode: CUSTOM_ID internal links generate non-standard markdown that breaks compatibility · Issue #11066 · jgm/pandoc]]
+
+** [[https://github.com/jgm/pandoc/issues/6916][org-mode: internal links are interpreted & rendered as emphasis · Issue #6916 · jgm/pandoc]]
+*** [[https://github.com/jgm/pandoc/issues/6917][Orgmode (.org) to Markdown (.md) not handling in-page link correctly · Issue #6917 · jgm/pandoc]]
+
+* DONE make `readable_line_breaks_p` be a flag `--org-readable-line-breaks-p` default
+
 * DONE _
 #+begin_verse
 include examples for all output formats in `examples/` for `https://www.ninisite.com/discussion/topic/11473285/`.

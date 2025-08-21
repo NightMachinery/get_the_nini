@@ -256,6 +256,7 @@ class NinisiteScraper:
         base_url: str,
         parallel: int = 1,
         first_page_soup: Optional[BeautifulSoup] = None,
+        readable_line_breaks_p: bool = True,
     ) -> List[Dict]:
         """
         Fetches each page of a discussion and immediately extracts posts from it.
@@ -268,7 +269,9 @@ class NinisiteScraper:
         start_page = 1
         if first_page_soup:
             log_message("Processing provided first page...")
-            posts = self.extract_posts_from_page(first_page_soup, 1)
+            posts = self.extract_posts_from_page(
+                first_page_soup, 1, readable_line_breaks_p=readable_line_breaks_p
+            )
             if posts:
                 all_posts_by_page[1] = posts
             start_page = 2  # Start fetching from the second page
@@ -284,7 +287,9 @@ class NinisiteScraper:
             url = self._construct_page_url(base_url, page_num)
             soup = self.fetch_page(url)
             if soup:
-                return self.extract_posts_from_page(soup, page_num)
+                return self.extract_posts_from_page(
+                    soup, page_num, readable_line_breaks_p=readable_line_breaks_p
+                )
             log_message(f"Worker failed to fetch or process page {page_num}")
             return None
 
@@ -378,7 +383,9 @@ class NinisiteScraper:
             metadata["categories"] = categories[1:]  # Skip the first "تبادل نظر"
         return metadata
 
-    def extract_post_data(self, article, is_main_topic=False) -> Optional[Dict]:
+    def extract_post_data(
+        self, article, is_main_topic=False, readable_line_breaks_p: bool = True
+    ) -> Optional[Dict]:
         """Extract data from a single post article"""
         post = {}
         # Post ID
@@ -408,7 +415,11 @@ class NinisiteScraper:
         message_elem = article.find("div", class_="post-message")
         if message_elem:
             # Convert HTML to org-mode using pandoc
-            content = self.html_to_org_mode(message_elem, strip_links=False)
+            content = self.html_to_org_mode(
+                message_elem,
+                strip_links=False,
+                readable_line_breaks_p=readable_line_breaks_p,
+            )
             post["content"] = content
             # Also get HTML for potential formatting
             post["content_html"] = str(message_elem)
@@ -418,7 +429,9 @@ class NinisiteScraper:
             reply_msg = quote_elem.find("div", class_="reply-message")
             if reply_msg:
                 post["quoted_content"] = self.html_to_org_mode(
-                    reply_msg, strip_links=True
+                    reply_msg,
+                    strip_links=True,
+                    readable_line_breaks_p=readable_line_breaks_p,
                 )
                 # Get the referenced post ID
                 ref_id = reply_msg.get("data-id")
@@ -433,7 +446,11 @@ class NinisiteScraper:
         # Signature
         signature_elem = article.find("div", class_="topic-post__signature")
         if signature_elem:
-            post["signature"] = self.html_to_org_mode(signature_elem, strip_links=False)
+            post["signature"] = self.html_to_org_mode(
+                signature_elem,
+                strip_links=False,
+                readable_line_breaks_p=readable_line_breaks_p,
+            )
         post["is_main_topic"] = is_main_topic
         return post if post.get("content") or post.get("is_main_topic") else None
 
@@ -482,7 +499,7 @@ class NinisiteScraper:
         self,
         html_content,
         strip_links: bool = False,
-        readable_line_breaks_p=True,
+        readable_line_breaks_p: bool = True,
     ) -> str:
         """Convert HTML content to org-mode using pypandoc, optionally stripping links."""
         if not isinstance(html_content, PageElement):
@@ -961,7 +978,11 @@ class NinisiteScraper:
         return "\n".join(org_content)
 
     def scrape_discussion_streaming(
-        self, url: str, writer: OrgWriter, paginate: bool = True
+        self,
+        url: str,
+        writer: OrgWriter,
+        paginate: bool = True,
+        readable_line_breaks_p: bool = True,
     ):
         """Main method to scrape a discussion and stream org-mode formatted content"""
         log_message(f"Starting to scrape: {url}")
@@ -989,7 +1010,9 @@ class NinisiteScraper:
                 self.write_header_streaming(metadata, url, writer, total_pages)
                 first_page_processed = True
             # Extract and process posts from this page
-            page_posts = self.extract_posts_from_page(soup, page_num)
+            page_posts = self.extract_posts_from_page(
+                soup, page_num, readable_line_breaks_p=readable_line_breaks_p
+            )
             all_posts.extend(page_posts)
             # Write page content immediately
             if paginate and page_posts:
@@ -1011,14 +1034,20 @@ class NinisiteScraper:
         # Write final summary at the end
         self.write_summary_streaming(all_posts, writer)
 
-    def extract_posts_from_page(self, soup: BeautifulSoup, page_num: int) -> List[Dict]:
+    def extract_posts_from_page(
+        self, soup: BeautifulSoup, page_num: int, readable_line_breaks_p: bool = True
+    ) -> List[Dict]:
         """Extract posts from a single page"""
         posts = []
         # Main topic (only on first page)
         if page_num == 1:
             topic_article = soup.find("article", id="topic")
             if topic_article:
-                post = self.extract_post_data(topic_article, is_main_topic=True)
+                post = self.extract_post_data(
+                    topic_article,
+                    is_main_topic=True,
+                    readable_line_breaks_p=readable_line_breaks_p,
+                )
                 if post:
                     post["page"] = page_num
                     posts.append(post)
@@ -1028,7 +1057,11 @@ class NinisiteScraper:
             # Skip ads and special content
             if "forum-native-ad" in article.get("class", []):
                 continue
-            post = self.extract_post_data(article, is_main_topic=False)
+            post = self.extract_post_data(
+                article,
+                is_main_topic=False,
+                readable_line_breaks_p=readable_line_breaks_p,
+            )
             if post:
                 post["page"] = page_num
                 posts.append(post)
@@ -1065,7 +1098,9 @@ class NinisiteScraper:
         writer.writeln(f"- Total posts: {len(all_posts)}")
         writer.writeln(f"- Unique authors: {unique_authors}")
 
-    def scrape_discussion(self, url: str, paginate: bool = True) -> str:
+    def scrape_discussion(
+        self, url: str, paginate: bool = True, readable_line_breaks_p: bool = True
+    ) -> str:
         """Main method to scrape a discussion and return org-mode formatted content"""
         log_message(f"Starting to scrape: {url}")
         # Fetch first page to get metadata
@@ -1076,7 +1111,10 @@ class NinisiteScraper:
         # Fetch and extract all posts. Since this is a simple, non-parallel
         # version, we use parallel=1 and pass the first page.
         posts = self.fetch_and_extract_posts(
-            url, parallel=1, first_page_soup=first_page_soup
+            url,
+            parallel=1,
+            first_page_soup=first_page_soup,
+            readable_line_breaks_p=readable_line_breaks_p,
         )
         if not posts:
             raise Exception("No posts found")
@@ -1159,6 +1197,12 @@ def main():
         default=3.0,
         help="Seconds to wait after a 429 error before retrying (default: 3.0)",
     )
+    parser.add_argument(
+        "--org-readable-line-breaks-p",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Convert double line breaks to single line breaks in org-mode content for better readability (default: True)",
+    )
     args = parser.parse_args()
     # Handle URL/topic ID parsing
     if not args.topic_id_or_url:
@@ -1232,7 +1276,9 @@ def main():
         if args.streaming and fmt == "org":
             # Streaming org-mode
             with OrgWriter(args.out) as writer:
-                scraper.scrape_discussion_streaming(url, writer, args.paginate)
+                scraper.scrape_discussion_streaming(
+                    url, writer, args.paginate, args.org_readable_line_breaks_p
+                )
         else:
             # Buffered modes
             # Fetch first page to get metadata
@@ -1243,7 +1289,10 @@ def main():
             metadata = scraper.extract_topic_metadata(first_page_soup)
             # Fetch and process all posts, reusing the first page
             posts = scraper.fetch_and_extract_posts(
-                url, parallel=args.parallel, first_page_soup=first_page_soup
+                url,
+                parallel=args.parallel,
+                first_page_soup=first_page_soup,
+                readable_line_breaks_p=args.org_readable_line_breaks_p,
             )
             if not posts:
                 raise Exception("Could not extract any posts.")
